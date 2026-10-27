@@ -98,4 +98,4 @@ xcodebuild -project StressLab.xcodeproj -scheme StressLab -destination 'platform
 
 标题显示实际累计睡眠时长；正文依次显示当地起止时间、相对个人历史的时长评估和具体建议。过去 14 个睡眠日至少 5 晚同来源主睡眠才以中位数比较，差值达到 ±45 分钟提示短/长。只用明确的清醒记录，累计至少 20 分钟时提示中途清醒；缺失记录不当作连续睡眠。无足够历史就只报时间、时长和轻建议，不生成质量分或恢复结论。
 
-设置页独立保留最近睡眠通知的提交时间和完整文案，不被压力通知覆盖。数据仅保存在本机，不上传公开仓库。完整产品规则维护于项目通知文档第 7 节；计算实现见 `Sources/Core/MainSleepAssessment.swift`，测试见 `Tests/Core/MainSleepAssessmentTests.swift`。
+设置页独立保留最近睡眠通知的提交时间和完整文案，不被压力通知覆盖。数据仅保存在本机，不上传公开仓库。完整产品规则维护于项目通知文档 2.2 节；计算实现见 `Sources/Core/MainSleepAssessment.swift`，测试见 `Tests/Core/MainSleepAssessmentTests.swift`。
