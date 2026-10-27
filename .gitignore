@@ -1,0 +1,17 @@
+.build/
+build/
+build-device/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Device build outputs, private validation history and local health data
+build-*/
+.DS_Store
+docs/VALIDATION.md
+*.xcresult
+*.mobileprovision
+*.p12
+*.p8
+.env
+.env.*
