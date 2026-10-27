@@ -112,6 +112,13 @@ private struct HealthNotificationSettings: View {
                 .font(.footnote).foregroundStyle(.secondary)
             Text(notifications.sleepStatus).font(.footnote)
                 .accessibilityIdentifier("notifications.sleepStatus")
+            if let text = notifications.lastSleepNoticeText {
+                LabeledContent("最近睡眠提醒提交") { Text(LabFormat.optionalTime(notifications.lastSleepNoticeAt)) }
+                Text(text).font(.footnote)
+                    .accessibilityIdentifier("notifications.lastSleepNotice")
+                Text("仅代表提交给系统，不代表已展示。评估为个人时长比较，清醒记录缺失不代表连续睡眠。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Toggle("心率压力趋势提醒", isOn: Binding(get: { notifications.trendEnabled }, set: { notifications.setTrendEnabled($0) }))
                 .disabled(!notifications.enabled || store.isDemo)
                 .accessibilityIdentifier("notifications.trend")

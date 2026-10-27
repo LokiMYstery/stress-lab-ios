@@ -15,6 +15,7 @@ struct MainSleepNotificationCandidate {
     var end: Date
     var sleepMinutes: Int
     var sourceID: String
+    var assessment: MainSleepAssessment? = nil
     var requestID: String { "stresslab.sleep.\(key)" }
     var durationText: String { "\(sleepMinutes / 60) 小时 \(sleepMinutes % 60) 分钟" }
 }
@@ -37,41 +38,20 @@ struct MainSleepNotificationCursor: Codable {
     mutating func evaluate(dataset: HealthDataset, now: Date, calendar: Calendar) -> MainSleepNotificationCandidate? {
         guard !dataset.isDemo else { status = "模拟数据不触发睡眠提醒"; return nil }
         guard primed else { prime(dataset: dataset); return nil }
-        let records = dataset.intervals.filter { $0.kind == .sleep && $0.start < $0.end && $0.end <= now && $0.start >= now.addingTimeInterval(-48 * 3600) }
-        let newIDs = Set(records.map(\.id)).subtracting(knownIDs)
+        let episodes = MainSleepEpisodes.collect(dataset: dataset, now: now, calendar: calendar,
+            since: now.addingTimeInterval(-48 * 3600))
+        let newIDs = Set(dataset.intervals.filter { $0.kind == .sleep }.map(\.id)).subtracting(knownIDs)
         knownIDs = Set(dataset.intervals.filter { $0.kind == .sleep }.map(\.id))
-        var candidates: [MainSleepNotificationCandidate] = []
-        for (source, intervals) in Dictionary(grouping: records, by: \.sourceID) {
-            let sorted = intervals.sorted { $0.start < $1.start }
-            var groups: [[ContextInterval]] = []
-            for interval in sorted {
-                if let last = groups.last, let end = last.map(\.end).max(), interval.start.timeIntervalSince(end) <= 90 * 60 {
-                    groups[groups.count - 1].append(interval)
-                } else { groups.append([interval]) }
-            }
-            for group in groups {
-                let start = group[0].start, end = group.map(\.end).max()!
-                // An 18:00 boundary groups one night; segment revisions retain this identity.
-                let boundary = calendar.date(byAdding: .hour, value: -18, to: start)!
-                let key = "\(calendar.startOfDay(for: boundary).timeIntervalSince1970)"
-                var unionEnd = start, seconds: TimeInterval = 0
-                var nighttime = false
-                for interval in group {
-                    seconds += max(0, interval.end.timeIntervalSince(max(unionEnd, interval.start)))
-                    unionEnd = max(unionEnd, interval.end)
-                    var day = calendar.startOfDay(for: interval.start)
-                    while day < interval.end {
-                        let six = calendar.date(byAdding: .hour, value: 6, to: day)!
-                        if interval.start < six && interval.end > day { nighttime = true }
-                        day = calendar.date(byAdding: .day, value: 1, to: day)!
-                    }
-                }
-                guard seconds >= 3 * 3600, end.timeIntervalSince(start) <= 18 * 3600, nighttime else { continue }
-                if group.contains(where: { newIDs.contains($0.id) }) { pending.insert(key) }
-                candidates.append(.init(key: key, start: start, end: end, sleepMinutes: Int(seconds / 60), sourceID: source))
-            }
+        let candidates = episodes.map { episode -> MainSleepNotificationCandidate in
+            if episode.records.contains(where: { newIDs.contains($0.id) }) { pending.insert(episode.key) }
+            return .init(key: episode.key, start: episode.start, end: episode.end,
+                sleepMinutes: episode.sleepMinutes, sourceID: episode.sourceID)
         }
-        guard let candidate = candidates.max(by: { $0.end < $1.end }) else { status = "没有合格夜间主睡眠（实际睡眠至少 3 小时）"; return nil }
+        guard var candidate = candidates.max(by: { lhs, rhs in
+            if lhs.end != rhs.end { return lhs.end < rhs.end }
+            if lhs.sleepMinutes != rhs.sleepMinutes { return lhs.sleepMinutes < rhs.sleepMinutes }
+            return lhs.sourceID < rhs.sourceID
+        }) else { status = "没有合格夜间主睡眠（实际睡眠至少 3 小时）"; return nil }
         let age = now.timeIntervalSince(candidate.end)
         guard !handled.contains(candidate.key), pending.contains(candidate.key) else { status = "历史或已提醒的主睡眠，不重复发送"; return nil }
         guard age <= 2 * 3600 else { status = "睡眠记录到达过晚（结束超过 2 小时），跳过"; pending.remove(candidate.key); return nil }
@@ -80,6 +60,7 @@ struct MainSleepNotificationCursor: Codable {
             status = "发现后续睡眠记录，暂不提醒"; return nil
         }
         guard !NotificationQuietHours.isQuiet(at: now, calendar: calendar) else { status = "23:00–07:00 静默；下次更新再判断时效"; return nil }
+        candidate.assessment = MainSleepAssessmentEngine.assess(candidate: candidate, dataset: dataset, now: now, calendar: calendar)
         status = "主睡眠候选：\(candidate.durationText)；等待提交通知"
         return candidate
     }

@@ -18,6 +18,8 @@ import UserNotifications
     private var sleepCursor = MainSleepNotificationCursor()
     @Published private(set) var sleepStatus = "等待主睡眠记录"
     @Published private(set) var sleepEnabled = true
+    @Published private(set) var lastSleepNoticeText: String?
+    @Published private(set) var lastSleepNoticeAt: Date?
     private var generation = 0
     private let center = UNUserNotificationCenter.current()
     private var fileURL: URL {
@@ -35,6 +37,8 @@ import UserNotifications
         var trendParameters: HeartRateTrendParameters?
         var sleepCursor: MainSleepNotificationCursor?
         var sleepEnabled: Bool?
+        var lastSleepNoticeText: String?
+        var lastSleepNoticeAt: Date?
     }
 
     override init() {
@@ -43,6 +47,8 @@ import UserNotifications
             enabled = state.enabled
             sleepCursor = state.sleepCursor ?? MainSleepNotificationCursor()
             sleepEnabled = state.sleepEnabled ?? true
+            lastSleepNoticeText = state.lastSleepNoticeText
+            lastSleepNoticeAt = state.lastSleepNoticeAt
             sleepStatus = sleepCursor.status
             cursor = state.cursor; lastNotice = state.lastNotice
             lastCallback = state.lastCallback; callbackType = state.callbackType ?? "—"
@@ -195,19 +201,28 @@ import UserNotifications
         sleepStatus = sleepCursor.status
         guard let candidate else { persist(); return false }
         let content = UNMutableNotificationContent()
-        content.title = "一段休息之后，慢慢开始"
-        content.body = "本次记录到睡眠 \(candidate.durationText)。让一段音乐，陪你找到接下来的节奏。"
+        guard let assessment = candidate.assessment else { return false }
+        content.title = assessment.title
+        content.body = assessment.body
         content.sound = .default
         content.threadIdentifier = "stresslab.sleep-updates"
         content.userInfo = ["measurementDate": candidate.end.timeIntervalSince1970,
                             "sourceID": candidate.sourceID, "notificationType": "main_sleep_ended",
-                            "sleepMinutes": candidate.sleepMinutes]
+                            "sleepMinutes": candidate.sleepMinutes,
+                            "sleepStart": candidate.start.timeIntervalSince1970,
+                            "sleepEnd": candidate.end.timeIntervalSince1970,
+                            "assessmentVersion": MainSleepAssessment.version,
+                            "durationComparison": assessment.comparison.rawValue,
+                            "baselineNights": assessment.baselineNights,
+                            "observedAwakeMinutes": assessment.observedAwakeMinutes]
         do {
             try await center.add(UNNotificationRequest(identifier: candidate.requestID, content: content, trigger: nil))
             guard enabled, sleepEnabled, token == generation else {
                 center.removePendingNotificationRequests(withIdentifiers: [candidate.requestID]); return true
             }
             sleepCursor.acknowledge(candidate); sleepStatus = sleepCursor.status
+            lastSleepNoticeText = assessment.title + "\n" + assessment.body
+            lastSleepNoticeAt = now
             lastNotice = now; deliveryStatus = sleepStatus
         } catch { deliveryStatus = "睡眠通知提交失败，等待下次更新重试：\(error.localizedDescription)" }
         persist(); return true
@@ -234,6 +249,7 @@ import UserNotifications
         generation += 1
         enabled = false; trendEnabled = true; trendParameters = HeartRateTrendParameters(); cursor = HealthNotificationCursor()
         sleepCursor = MainSleepNotificationCursor(); sleepEnabled = true; sleepStatus = sleepCursor.status
+        lastSleepNoticeText = nil; lastSleepNoticeAt = nil
         lastCallback = nil; lastNotice = nil; backgroundStatus = "未开启后台接收"
         deliveryStatus = "通知记录已清除"
         center.removeAllPendingNotificationRequests()
@@ -249,7 +265,8 @@ import UserNotifications
             try folder.setResourceValues(values)
             let state = State(enabled: enabled, cursor: cursor,
                 lastNotice: lastNotice, lastCallback: lastCallback, callbackType: callbackType, deliveryStatus: deliveryStatus,
-                trendEnabled: trendEnabled, trendParameters: trendParameters, sleepCursor: sleepCursor, sleepEnabled: sleepEnabled)
+                trendEnabled: trendEnabled, trendParameters: trendParameters, sleepCursor: sleepCursor, sleepEnabled: sleepEnabled,
+                lastSleepNoticeText: lastSleepNoticeText, lastSleepNoticeAt: lastSleepNoticeAt)
             try JSONEncoder().encode(state).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         } catch { deliveryStatus = "通知状态保存失败：\(error.localizedDescription)" }
     }
